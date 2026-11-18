@@ -1,0 +1,60 @@
+id = "herdr-openshell"
+name = "OpenShell sandboxes"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "One NVIDIA OpenShell microVM per herdr worktree. Credentials come from the OpenShell workspace mapped to the repo's space; results come back as git commits."
+platforms = ["linux", "macos"]
+
+[[events]]
+on = "worktree.created"
+command = ["node", "herdr-openshell.mjs", "event"]
+
+[[events]]
+on = "worktree.removed"
+command = ["node", "herdr-openshell.mjs", "event"]
+
+[[actions]]
+id = "agent"
+title = "Start agent in this worktree's sandbox"
+contexts = ["workspace", "pane"]
+command = ["node", "herdr-openshell.mjs", "action"]
+
+[[actions]]
+id = "shell"
+title = "Open shell in this worktree's sandbox"
+contexts = ["workspace", "pane"]
+command = ["node", "herdr-openshell.mjs", "action"]
+
+[[actions]]
+id = "pull"
+title = "Pull sandbox commits into this worktree"
+contexts = ["workspace", "pane"]
+command = ["node", "herdr-openshell.mjs", "action"]
+
+[[actions]]
+id = "stop"
+title = "Stop this worktree's sandbox (keeps its disk)"
+contexts = ["workspace", "pane"]
+command = ["node", "herdr-openshell.mjs", "action"]
+
+[[actions]]
+id = "delete"
+title = "Delete this worktree's sandbox"
+contexts = ["workspace", "pane"]
+command = ["node", "herdr-openshell.mjs", "action"]
+
+# Agent and shell sessions: an interactive `openshell sandbox exec --tty`.
+[[panes]]
+id = "session"
+title = "openshell"
+placement = "split"
+command = ["node", "herdr-openshell.mjs", "pane"]
+
+# pull / stop / delete: visible output, confirmation for delete.
+[[panes]]
+id = "task"
+title = "openshell"
+placement = "popup"
+width = "70%"
+height = "50%"
+command = ["node", "herdr-openshell.mjs", "pane"]

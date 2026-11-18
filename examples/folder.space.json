@@ -1,0 +1,6 @@
+{
+  "workspace": "work",
+  "sandbox": "space",
+  "providers": ["github", "claude"],
+  "agent": "claude"
+}

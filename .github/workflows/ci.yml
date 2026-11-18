@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - name: syntax
+        run: node --check herdr-openshell.mjs && node --check herdr-app/openshell-status/main.js
+      - name: test
+        run: node --test
+
+  config:
+    name: manifest and config files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: herdr-plugin.toml has the required fields
+        run: |
+          for key in id name version min_herdr_version; do
+            grep -qE "^$key = \"[^\"]+\"" herdr-plugin.toml || { echo "herdr-plugin.toml: missing $key" >&2; exit 1; }
+          done
+      - name: JSON and YAML parse
+        run: |
+          for f in examples/*.json herdr-app/*/mod.json; do jq empty "$f" || exit 1; done
+          python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' default-policy.yaml

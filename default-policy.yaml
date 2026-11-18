@@ -1,0 +1,10 @@
+# Used when the repo has no .openshell/policy.yaml on its trusted ref.
+# Mirrors OpenShell's built-in default: workdir read-write, system paths
+# read-only, no network. Attached providers add their own network rules.
+version: 1
+filesystem_policy:
+  include_workdir: true
+  read_only: [/bin, /usr, /lib, /proc, /dev/urandom, /etc, /var/log]
+  read_write: [/tmp, /dev/null]
+landlock:
+  compatibility: best_effort

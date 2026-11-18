@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+# Written into mod folders by Herdr.app on load
+herdr-app/*/jsconfig.json
+herdr-app/*/*.d.ts
