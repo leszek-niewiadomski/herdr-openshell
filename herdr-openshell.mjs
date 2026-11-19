@@ -387,9 +387,10 @@ function onAction() {
   const wt = focusedWorktree();
   if (!wt) return notify("OpenShell", "Focus a worktree workspace first.");
   const session = id === "agent" || id === "shell";
+  // No --cwd: the pane command is a path relative to the plugin root, where herdr starts it.
   const r = run(HERDR, ["plugin", "pane", "open", "--plugin", env.HERDR_PLUGIN_ID || "herdr-openshell",
     "--entrypoint", session ? "session" : "task", ...(session ? ["--placement", "split", "--direction", "right"] : []),
-    "--cwd", wt.checkout_path, "--env", `HOS_MODE=${id}`, "--env", `HOS_CHECKOUT=${wt.checkout_path}`,
+    "--env", `HOS_MODE=${id}`, "--env", `HOS_CHECKOUT=${wt.checkout_path}`,
     "--env", `HOS_REPO_ROOT=${wt.repo_root}`, "--focus"]);
   if (r.status !== 0) say(`pane open failed: ${r.stderr}`);
 }
