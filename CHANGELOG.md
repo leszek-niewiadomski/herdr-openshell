@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-11-19
 
 ### Added
 
@@ -27,4 +27,5 @@ All notable changes to this project are documented here. The format follows
 - Missing providers are created from host env vars (`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, ...), overridable per space with `"credentials"`.
 - `status [dir]` subcommand and the `openshell-status` Herdr.app status bar mod.
 
+[0.2.0]: https://github.com/leszek-niewiadomski/herdr-openshell/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/leszek-niewiadomski/herdr-openshell/releases/tag/v0.1.0

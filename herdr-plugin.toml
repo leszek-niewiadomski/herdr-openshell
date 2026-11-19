@@ -1,6 +1,6 @@
 id = "herdr-openshell"
 name = "OpenShell sandboxes"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.8.0"
 description = "One NVIDIA OpenShell microVM per herdr worktree. Credentials come from the OpenShell workspace mapped to the repo's space; results come back as git commits."
 platforms = ["linux", "macos"]
