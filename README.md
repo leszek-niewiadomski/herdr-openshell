@@ -101,14 +101,16 @@ The default image is `ghcr.io/nvidia/openshell-community/sandboxes/base`, which 
 
 ## Lifecycle
 
+Both herdr clients drive the same script. The herdr terminal app gets the plugin (`herdr-plugin.toml`): its hooks and actions. Herdr.app gets the [`openshell-status` mod](#herdrapp), which shows the sandbox and runs the same actions in a terminal.
+
 | trigger                     | effect                                                                                                                        |
 |-----------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| `worktree.created`          | creates the sandbox (or reuses the space's), clones the branch into it, sets `origin` to HTTPS and the git identity, then runs `setup`. |
+| `worktree.created` (herdr)  | creates the sandbox (or reuses the space's), clones the branch into it, sets `origin` to HTTPS and the git identity, then runs `setup`. Herdr.app has no such event: there the first `agent`/`shell` does this. |
 | action `agent` / `shell`    | opens a split running `openshell sandbox exec --tty` in the clone. A missing sandbox or clone is created first; a stopped sandbox is started. |
 | action `pull`               | fetches the clone's branches into `refs/openshell/<worktree-id>/*` and fast-forwards the current branch if the worktree is clean. |
 | action `stop`               | stops the VM. The disk is kept and the next `agent`/`shell` starts it again.                                                  |
 | action `delete`             | asks for confirmation (`discard` if work is unpulled), then removes this worktree's clone. The VM is deleted when no other worktree uses it. |
-| `worktree.removed`          | the same as `delete` if everything is pulled. Otherwise it keeps the clone, stops the VM unless other worktrees use it, and sends a notification. |
+| `worktree.removed` (herdr), or `gc` (Herdr.app, every 10 minutes) | the same as `delete` if everything is pulled. Otherwise it keeps the clone, stops the VM unless other worktrees use it, and sends a notification with the command that deletes it. |
 
 Only committed work comes back. `pull` lists uncommitted files left in the sandbox but does not copy them.
 
@@ -126,11 +128,21 @@ type = "plugin_action"
 command = "herdr-openshell.pull"
 ```
 
-The log is in `$HERDR_PLUGIN_STATE_DIR/plugin.log`. One record per worktree (`<worktree-id>.json`) is kept next to it.
+The log is in `$HERDR_PLUGIN_STATE_DIR/plugin.log` (`~/.local/state/herdr/plugins/herdr-openshell/`). One record per worktree (`<worktree-id>.json`) is kept next to it.
 
-## Herdr.app status bar
+The same actions work from any shell, for the worktree containing the folder (default: the current one). A removed worktree's kept sandbox is still found by its old path:
 
-`herdr-app/openshell-status` is a [Herdr.app](https://herdr.dev) mod: the app's status bar, with the focused terminal's sandbox in it (`workspace / sandbox · ready`, `stopped`, `not created`, or `unreachable` when the gateway is down). Hovering it shows the clone's path. It asks `node herdr-openshell.mjs status <dir>`, so it finds its plugin through the mod folder, which must be a symlink into this repo:
+```sh
+node herdr-openshell.mjs run agent|shell|pull|stop|delete [dir]
+node herdr-openshell.mjs status [dir]   # JSON: workspace, sandbox, clone path, phase
+node herdr-openshell.mjs gc             # worktree.removed for every checkout that's gone
+```
+
+## Herdr.app
+
+[Herdr.app](https://herdr.dev) doesn't run herdr plugins, so `herdr-app/openshell-status` brings the plugin there as a mod. It replaces the app's status bar with one that shows the focused terminal's sandbox (`workspace / sandbox · ready`, `stopped`, `not created`, or `unreachable` when the gateway is down; hover for the clone's path). Click it for the actions, which open in a terminal beside or below the focused one, like the plugin's panes. Every 10 minutes it runs `gc` in place of the missing `worktree.removed` event.
+
+The mod runs `herdr-openshell.mjs` from this repo, which it finds through its own folder, so install it as a symlink:
 
 ```sh
 ln -s "$PWD/herdr-app/openshell-status" ~/.config/herdr-app/mods/openshell-status
@@ -138,9 +150,15 @@ herdr-app check ~/.config/herdr-app/mods/openshell-status
 herdr-app do layout.clone '{"name":"main","as":"openshell"}'
 ```
 
-Then, in `~/.config/herdr-app/layouts/openshell.json`, change the `status` block's `"mod": "workspace-status"` to `"openshell-status"`. Edits apply live. The mod is a copy of the shipped status bar with one chip added, because mods can't import or embed each other. When Herdr changes its own bar, this one won't follow until it is updated here.
+Then, in `~/.config/herdr-app/layouts/openshell.json`, change the `status` block's `"mod": "workspace-status"` to `"openshell-status"`. Edits apply live. Keys go in `~/.config/herdr-app/keys.json` (editing it stops Herdr from adding new default shortcuts to it):
 
-Herdr.app does not run herdr plugins: the hooks and actions above need the herdr server (`herdr`). The mod only shows sandbox state, so it works whichever client created the sandbox.
+```json
+"layout:openshell": { "cmd-alt-a": "openshell-status.agent", "cmd-alt-p": "openshell-status.pull" }
+```
+
+The mod is a copy of the shipped status bar with the sandbox added, because mods can't import or embed each other. When Herdr changes its own bar, this one won't follow until it is updated here.
+
+You can run both clients: they share the state folder, and a lock per sandbox keeps them from acting on the same VM at once.
 
 ## Limits
 

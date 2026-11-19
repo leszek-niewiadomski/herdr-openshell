@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 // herdr-openshell: one OpenShell sandbox (microVM) per herdr worktree.
 //
+// herdr (terminal) plugin entrypoints, from herdr-plugin.toml:
 //   node herdr-openshell.mjs event    worktree.created / worktree.removed hook
 //   node herdr-openshell.mjs action   agent | shell | pull | stop | delete (HERDR_PLUGIN_ACTION_ID)
 //   node herdr-openshell.mjs pane     session/task pane body (HOS_* env from the action)
-//   node herdr-openshell.mjs status [dir] JSON for status bars: the sandbox of the worktree at dir
+// Herdr.app (the openshell-status mod) and shells:
+//   node herdr-openshell.mjs status [dir]       JSON: the sandbox of the worktree at dir
+//   node herdr-openshell.mjs run <mode> [dir]   one of the actions above, for the worktree at dir
+//   node herdr-openshell.mjs gc                 worktree.removed for checkouts that are gone
 //
 // The checkout is copied in as a git bundle and results come back as a git
 // bundle, so no host directory is ever mounted into the VM.
@@ -249,6 +253,7 @@ function ensure(checkout, repoRoot) {
       addWorktree(rec);
       save(rec);
     }
+    if (rec.kept) { delete rec.kept; save(rec); } // its worktree is back
     return rec;
   });
 }
@@ -331,25 +336,50 @@ function onEvent() {
     }
   } else if (kind === "worktree.removed") {
     const rec = readJson(recordPath(checkout));
-    if (!rec) return;
-    try {
-      withLock(rec.name, () => {
-        const wasStopped = phase(rec) === "Stopped";
-        if (wasStopped) osh(rec, "start", rec.name);
-        const left = unpulled(rec);
-        const shared = sharers(rec).length > 0;
-        if (!left.length) say(`${release(rec)} with its worktree`);
-        else {
-          say(`${rec.name} kept ${rec.workdir}: ${left.join(", ")}`);
-          notify("Sandbox kept", `${rec.name}: ${left.join(", ")}`);
-        }
-        // Stop a VM nobody else uses, and put a stopped shared VM back to sleep.
-        if ((left.length && !shared) || (wasStopped && shared)) osh(rec, "stop", rec.name);
-      });
-    } catch (e) {
-      say(`${rec.name}: left in place, could not check for unpulled work: ${e.message}`);
-    }
+    const kept = rec && removed(rec);
+    if (kept) notify("Sandbox kept", kept);
   }
+}
+
+// The worktree is gone: release its clone if the host has all of its work, else keep it, stop a VM
+// nobody else uses, and return why it was kept (null otherwise).
+function removed(rec) {
+  try {
+    return withLock(rec.name, () => {
+      if (!fs.existsSync(recordPath(rec.checkout))) return null; // another client got here first
+      const p = phase(rec);
+      if (!p) { fs.rmSync(recordPath(rec.checkout)); return null; } // the VM is already gone
+      if (p === "Stopped") osh(rec, "start", rec.name);
+      const left = unpulled(rec);
+      const shared = sharers(rec).length > 0;
+      let kept = null;
+      if (!left.length) say(`${release(rec)} with its worktree`);
+      else {
+        kept = `${rec.name} kept ${rec.workdir}: ${left.join(", ")}. Delete it with: node ${path.join(HERE, "herdr-openshell.mjs")} run delete ${rec.checkout}`;
+        say(kept);
+        save({ ...rec, kept: true });
+      }
+      // Stop a VM nobody else uses, and put a stopped shared VM back to sleep.
+      if ((kept && !shared) || (p === "Stopped" && shared)) osh(rec, "stop", rec.name);
+      return kept;
+    });
+  } catch (e) {
+    say(`${rec.name}: left in place, could not check for unpulled work: ${e.message}`);
+    return null;
+  }
+}
+
+// Herdr.app has no worktree events, so a record whose checkout is gone counts as worktree.removed.
+// Kept ones are marked, so later rounds don't boot their VM just to look again.
+function onGc() {
+  const notes = [];
+  for (const f of fs.readdirSync(STATE).filter((f) => f.endsWith(".json"))) {
+    const rec = readJson(path.join(STATE, f));
+    if (!rec?.checkout || rec.kept || fs.existsSync(rec.checkout)) continue;
+    const kept = removed(rec);
+    if (kept) notes.push(kept);
+  }
+  console.log(JSON.stringify(notes));
 }
 
 function onAction() {
@@ -364,8 +394,9 @@ function onAction() {
   if (r.status !== 0) say(`pane open failed: ${r.stderr}`);
 }
 
-async function onPane() {
-  const mode = env.HOS_MODE;
+// The body of an action, in a terminal of either client: herdr's plugin pane, or a Herdr.app
+// terminal opened by the openshell-status mod through `run`.
+async function session(mode, checkout, repoRoot) {
   let rl; // created lazily: a readline on the TTY must not exist while openshell owns it
   const ask = (q) => new Promise((done) => { // "" on EOF instead of a dangling promise
     rl ??= readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -374,13 +405,13 @@ async function onPane() {
   });
   try {
     if (mode === "agent" || mode === "shell") {
-      const rec = ensure(env.HOS_CHECKOUT, env.HOS_REPO_ROOT);
+      const rec = ensure(checkout, repoRoot);
       if (rec.skip) throw new Error(`not sandboxed: ${rec.skip}`);
       const cmd = mode === "agent" ? rec.agent : "exec bash -l";
       const r = spawnSync("openshell", osArgs(rec, "exec", rec.name, "--tty", "--workdir", rec.workdir, "--", "bash", "-lc", cmd), { stdio: "inherit" });
       process.exit(r.status ?? 1);
     }
-    const rec = readJson(recordPath(env.HOS_CHECKOUT));
+    const rec = readJson(recordPath(checkout));
     if (!rec) throw new Error("this worktree has no sandbox");
     const others = sharers(rec).length;
     if (mode === "stop") {
@@ -405,16 +436,22 @@ async function onPane() {
   rl.close();
 }
 
+// The linked worktree containing `dir`, or null (a main checkout never gets a sandbox).
+function worktreeOf(dir) {
+  const checkout = tryGit(dir, "rev-parse", "--show-toplevel");
+  const common = checkout && tryGit(checkout, "rev-parse", "--path-format=absolute", "--git-common-dir");
+  const repoRoot = common && path.dirname(common);
+  return repoRoot && repoRoot !== checkout ? { checkout, repoRoot } : null;
+}
+
 // One JSON line describing the sandbox for the worktree at `dir`, for status bars:
 // {} when it isn't a sandboxed worktree, {error} on bad config, else where it runs and its phase.
 function onStatus(dir) {
   let out = {};
-  const checkout = tryGit(dir, "rev-parse", "--show-toplevel");
-  const common = checkout && tryGit(checkout, "rev-parse", "--path-format=absolute", "--git-common-dir");
-  const repoRoot = common && path.dirname(common);
-  if (repoRoot && repoRoot !== checkout) { // only linked worktrees get sandboxes
+  const wt = worktreeOf(dir);
+  if (wt) {
     try {
-      const rec = readJson(recordPath(checkout)) || resolve(checkout, repoRoot);
+      const rec = readJson(recordPath(wt.checkout)) || resolve(wt.checkout, wt.repoRoot);
       if (!rec.skip) {
         let p;
         try { p = phase(rec) || "none"; } catch { p = "unreachable"; }
@@ -425,9 +462,24 @@ function onStatus(dir) {
   console.log(JSON.stringify(out));
 }
 
-const cmd = process.argv[2];
+// `run <mode> [dir]`: an action for the worktree at dir. A removed worktree's kept sandbox is
+// still found by its checkout path, so it can be pulled from or deleted.
+async function onRun(mode, dir) {
+  if (!["agent", "shell", "pull", "stop", "delete"].includes(mode)) {
+    console.error("run: mode must be agent, shell, pull, stop or delete");
+    process.exit(2);
+  }
+  const rec = readJson(recordPath(path.resolve(dir)));
+  const wt = rec ? { checkout: rec.checkout, repoRoot: rec.repoRoot } : worktreeOf(dir);
+  if (!wt) { console.error(`run: ${dir} is not a linked git worktree`); process.exit(1); }
+  await session(mode, wt.checkout, wt.repoRoot);
+}
+
+const [cmd, arg, arg2] = process.argv.slice(2);
 if (cmd === "event") onEvent();
 else if (cmd === "action") onAction();
-else if (cmd === "pane") await onPane();
-else if (cmd === "status") onStatus(process.argv[3] || process.cwd());
-else { console.error("usage: herdr-openshell.mjs event|action|pane|status [dir]"); process.exit(2); }
+else if (cmd === "pane") await session(env.HOS_MODE, env.HOS_CHECKOUT, env.HOS_REPO_ROOT);
+else if (cmd === "status") onStatus(arg || process.cwd());
+else if (cmd === "run") await onRun(arg, arg2 || process.cwd());
+else if (cmd === "gc") onGc();
+else { console.error("usage: herdr-openshell.mjs event|action|pane | status [dir] | run <mode> [dir] | gc"); process.exit(2); }
