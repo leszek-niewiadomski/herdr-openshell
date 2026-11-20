@@ -166,6 +166,14 @@ You can run both clients: they share the state folder, and a lock per sandbox ke
 - `git bundle` carries the full history of the branch, once per worktree even in `"space"` mode. On very large repos provisioning is slow and a shared VM stores the history once per clone.
 - Locally, without OIDC, every user is a Platform Admin, so workspaces keep *your* identities apart. To separate teammates, use a shared gateway with OIDC and workspace memberships.
 
+## For coding agents
+
+[`skills/herdr-openshell/SKILL.md`](skills/herdr-openshell/SKILL.md) is an [Agent Skill](https://agentskills.io) for agents on either side: on the host, checking and driving sandboxes (`status`, `pull`, `delete`, one-off commands), and inside a sandbox (commit to bring work back, no push, network denied by default). To make it available to your agent, link it into its skills folder, for example:
+
+```sh
+ln -s "$PWD/skills/herdr-openshell" ~/.claude/skills/herdr-openshell
+```
+
 ## Development
 
 ```sh

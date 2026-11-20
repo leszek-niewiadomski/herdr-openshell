@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `skills/herdr-openshell/SKILL.md`: a manual for coding agents, on the host and inside sandboxes.
+
 ## [0.2.1] - 2026-11-19
 
 ### Fixed
